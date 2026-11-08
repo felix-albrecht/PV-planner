@@ -1,6 +1,7 @@
 *.DS_Store
-venv
-github-pages/worker/.wrangler
-github-pages/worker/node_modules
+venv/
+configs/
+github-pages/worker/.wrangler/
+github-pages/worker/node_modules/
 __pycache__/
 .pytest_cache/

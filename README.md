@@ -6,7 +6,9 @@ There are some very nice calculation tools for yearly/monthly/daily PV productio
 
 However, none of them are able to create multiple sections with different azimuth, tilt etc. like it is the case for a complex house setup.
 
-This simple web app lets you create these different sections, then fetch data from the PVGIS v5.3 API and display them nicely.
+This web app lets you create these different sections, then fetch data from the PVGIS v5.3 API and display them nicely. Also, it allows for planning of a PV installation with electricity consumption battery storage and savings prediction.
+
+Try it out at https://felix-albrecht.github.io/PV-planner/
 
 # Installation
 
@@ -59,6 +61,16 @@ Download the calculated data for further analysis as csv, and the PV config as j
   - Batteries: any number, each charged by the sections you click (e.g. a balcony storage on the balcony panels, a home battery on the roof).
   - Prices: fixed, dynamic (real 2025 German day-ahead prices, 15-minute from October, plus fees and VAT), or a custom daily curve / CSV; feed-in fixed or at spot market value.
 
+![Consumption, battery and price settings](screenshots/settings.png)
+
+Generate metrics for how much savings are expected.
+
+![PV savings](screenshots/metrics.png)
+
+View hourly power breakdown based on a year you choose.
+
+![Energy breakdown](screenshots/results.png)
+
 The planner code is shared by both versions: `github-pages/planner-core.js` (calculations) and `github-pages/planner-ui.js` (interface); Flask serves them under `/shared/`. Price data: Bundesnetzagentur | SMARD.de (CC BY 4.0) via energy-charts.info; regenerate with `python tools/fetch_prices.py`.
 
 # Tests
@@ -70,5 +82,5 @@ pytest -m live                         # same parity check against the live PVGI
 node --test tests/worker.test.mjs tests/planner.test.mjs   # worker rules; planner demand, CSV, prices, battery simulation
 ```
 
-GitHub Actions runs the offline tests on every push and the live tests weekly (`.github/workflows/tests.yml`). After changing `tests/cases.json` or the PVGIS calls, re-record the responses with `python tests/record_fixtures.py`.
+After changing `tests/cases.json` or the PVGIS calls, re-record the responses with `python tests/record_fixtures.py`.
 
