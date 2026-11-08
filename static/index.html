@@ -248,7 +248,7 @@ $('calc').onclick = async () => {
   const sections = readSections();
   if (!sections.length) { $('error').textContent = 'Add at least one section.'; return; }
   $('error').textContent = '';
-  $('status').textContent = 'Querying PVGIS (first run per section takes ~10–30 s)…';
+  $('status').textContent = 'Querying PVGIS…';
   $('calc').disabled = true;
   try {
     const r = await fetch('/api/calculate', {

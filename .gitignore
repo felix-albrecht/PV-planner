@@ -2,3 +2,5 @@
 venv
 github-pages/worker/.wrangler
 github-pages/worker/node_modules
+__pycache__/
+.pytest_cache/

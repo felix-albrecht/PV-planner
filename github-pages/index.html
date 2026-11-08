@@ -165,7 +165,6 @@
  * ===================================================================== */
 const PROXY_URL = 'https://pvgis-proxy.felixalbrecht.workers.dev';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-const START_YEAR = 2005, END_YEAR = 2023, N_YEARS = END_YEAR - START_YEAR + 1;
 const PV_TECHS = ['crystSi', 'CIS', 'CdTe', 'Unknown'];
 const MOUNTINGS = ['free', 'building'];
 const daysInMonth = m => new Date(2023, m + 1, 0).getDate();  // m: 0-based
@@ -179,44 +178,41 @@ async function geocode(q) {
   return {results: hits.map(h => ({name: h.display_name, lat: +h.lat, lon: +h.lon}))};
 }
 
-// Cache per parameter set: the summed energy per (month, UTC hour).
-// Keeping only these 12x24 sums instead of the ~170k-row series saves memory.
-const seriesCache = new Map();
-function pvgisSums(params) {
-  const key = JSON.stringify(params);
-  if (!seriesCache.has(key)) {
-    const p = (async () => {
-      const qs = new URLSearchParams({
-        ...params, pvcalculation: 1, startyear: START_YEAR, endyear: END_YEAR, outputformat: 'json',
-      });
-      if (!params.userhorizon) qs.delete('userhorizon');
-      const r = await fetch(`${PROXY_URL}/seriescalc?${qs}`);
-      if (!r.ok) throw new Error(`PVGIS error ${r.status}: ${(await r.text()).slice(0, 300)}`);
-      const data = await r.json();
-      const sums = Array.from({length: 12}, () => new Array(24).fill(0));
-      for (const rec of data.outputs.hourly) {
-        const t = rec.time;  // e.g. "20230101:0010" (UTC)
-        sums[+t.slice(4, 6) - 1][+t.slice(9, 11)] += rec.P;
-      }
-      return sums;
-    })();
-    p.catch(() => seriesCache.delete(key));  // don't cache failures
-    seriesCache.set(key, p);
+// Fetch a PVGIS endpoint through the proxy; results are cached per URL in this tab.
+const pvgisCache = new Map();
+function pvgisGet(endpoint, params) {
+  const qs = new URLSearchParams({...params, outputformat: 'json'});
+  if (!params.userhorizon) qs.delete('userhorizon');
+  const url = `${PROXY_URL}/${endpoint}?${qs}`;
+  if (!pvgisCache.has(url)) {
+    const p = fetch(url).then(async r => {
+      if (!r.ok) throw new Error(`PVGIS ${endpoint} error ${r.status}: ${(await r.text()).slice(0, 300)}`);
+      return r.json();
+    });
+    p.catch(() => pvgisCache.delete(url));  // don't cache failures
+    pvgisCache.set(url, p);
   }
-  return seriesCache.get(key);
+  return pvgisCache.get(url);
 }
 
-const horizonCache = new Map();
-function pvgisHorizon(lat, lon) {
-  const key = `${lat},${lon}`;
-  if (!horizonCache.has(key)) {
-    const p = fetch(`${PROXY_URL}/printhorizon?${new URLSearchParams({lat, lon, outputformat: 'json'})}`)
-      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(d => d.outputs.horizon_profile.map(pt => [pt.A, pt.H_hor]));
-    p.catch(() => horizonCache.delete(key));
-    horizonCache.set(key, p);
-  }
-  return horizonCache.get(key);
+// PVcalc: average energy per month in kWh (12 values) and the data period.
+async function pvgisMonthly(params) {
+  const d = await pvgisGet('PVcalc', params);
+  const meteo = d.inputs.meteo_data;
+  return {monthly: d.outputs.monthly.fixed.map(r => r.E_m), years: `${meteo.year_min}-${meteo.year_max}`};
+}
+
+// DRcalc: mean irradiance G(i) per (month, UTC hour) on the panel plane, W/m2.
+async function pvgisDailyProfile({lat, lon, angle, aspect, userhorizon}) {
+  const d = await pvgisGet('DRcalc', {lat, lon, month: 0, global: 1, angle, aspect, userhorizon});
+  const g = Array.from({length: 12}, () => new Array(24).fill(0));
+  for (const r of d.outputs.daily_profile) g[r.month - 1][+r.time.slice(0, 2)] = r['G(i)'];
+  return g;
+}
+
+async function pvgisHorizon(lat, lon) {
+  const d = await pvgisGet('printhorizon', {lat, lon});
+  return d.outputs.horizon_profile.map(pt => [pt.A, pt.H_hor]);
 }
 
 async function calculate(body) {
@@ -224,6 +220,7 @@ async function calculate(body) {
   if (!isFinite(lat) || !isFinite(lon)) throw new Error('invalid latitude/longitude');
   const userhorizon = (body.userhorizon || '').trim();
   const tzOffset = Math.round(lon / 15);  // crude solar time zone, no DST
+  let years = '';
 
   const sectionsOut = await Promise.all(body.sections.map(async sec => {
     const name = sec.name || 'Section';
@@ -233,27 +230,31 @@ async function calculate(body) {
     if (![kwp, tilt, azimuth].every(isFinite)) throw new Error(`${name}: kWp, tilt and azimuth must be numbers`);
     if (!PV_TECHS.includes(pvtech) || !MOUNTINGS.includes(mounting)) throw new Error(`${name}: invalid pvtech/mounting`);
 
-    let sums;
+    const params = {
+      lat, lon, peakpower: kwp, loss, angle: tilt,
+      aspect: azimuth - 180,  // PVGIS convention: 0 = south, 90 = west
+      pvtechchoice: pvtech, mountingplace: mounting, userhorizon,
+    };
+    let monthly, g;
     try {
-      sums = await pvgisSums({
-        lat, lon, peakpower: kwp, loss, angle: tilt,
-        aspect: azimuth - 180,  // PVGIS convention: 0 = south, 90 = west
-        pvtechchoice: pvtech, mountingplace: mounting, userhorizon,
-      });
+      [{monthly, years}, g] = await Promise.all([pvgisMonthly(params), pvgisDailyProfile(params)]);
     } catch (e) { throw new Error(`${name}: ${e.message}`); }
 
-    // Shift UTC hours to local solar time; each sample is 1 h -> W == Wh
-    const monthHour = sums.map((row, m) => {
+    // Distribute each month's mean daily energy over the hours in proportion
+    // to the irradiance profile, shifted to local solar time.
+    const monthHour = g.map((row, m) => {
       const out = new Array(24).fill(0);
-      row.forEach((v, hUtc) => { out[(((hUtc + tzOffset) % 24) + 24) % 24] = v / (N_YEARS * daysInMonth(m)); });
+      const gSum = row.reduce((a, b) => a + b, 0);
+      if (gSum <= 0) return out;
+      const whPerDay = monthly[m] * 1000 / daysInMonth(m);
+      row.forEach((v, hUtc) => { out[(((hUtc + tzOffset) % 24) + 24) % 24] = whPerDay * v / gSum; });
       return out;
     });
-    const monthlyKwh = monthHour.map((row, m) => row.reduce((a, b) => a + b, 0) * daysInMonth(m) / 1000);
     return {
       name, kwp, tilt, azimuth, pvtech, mounting,
-      monthly_kwh: monthlyKwh,
+      monthly_kwh: monthly,
       month_hour_wh: monthHour,
-      annual_kwh: monthlyKwh.reduce((a, b) => a + b, 0),
+      annual_kwh: monthly.reduce((a, b) => a + b, 0),
     };
   }));
 
@@ -265,7 +266,7 @@ async function calculate(body) {
 
   return {
     lat, lon, tz_offset: tzOffset,
-    years: `${START_YEAR}-${END_YEAR}`,
+    years,
     horizon,
     horizon_source: userhorizon ? 'user-supplied' : 'DEM-calculated (PVGIS)',
     sections: sectionsOut,
@@ -366,7 +367,7 @@ $('calc').onclick = async () => {
   const sections = readSections();
   if (!sections.length) { $('error').textContent = 'Add at least one section.'; return; }
   $('error').textContent = '';
-  $('status').textContent = 'Querying PVGIS (first run per section takes ~10–30 s)…';
+  $('status').textContent = 'Querying PVGIS…';
   $('calc').disabled = true;
   try {
     const d = await calculate({

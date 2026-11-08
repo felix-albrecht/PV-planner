@@ -1,0 +1,20 @@
+{
+  "three_sections": {
+    "lat": 48.08,
+    "lon": 11.41,
+    "userhorizon": "",
+    "sections": [
+      {"name": "South roof", "kwp": 4, "tilt": 35, "azimuth": 180, "loss": 14},
+      {"name": "East garage", "kwp": 2, "tilt": 20, "azimuth": 90, "loss": 12, "pvtech": "CIS", "mounting": "building"},
+      {"name": "Balcony", "kwp": 0.8, "tilt": 90, "azimuth": 200, "loss": 14}
+    ]
+  },
+  "user_horizon": {
+    "lat": 48.08,
+    "lon": 11.41,
+    "userhorizon": "0,0,30,30,30,30,0,0",
+    "sections": [
+      {"name": "South roof", "kwp": 4, "tilt": 35, "azimuth": 180, "loss": 14}
+    ]
+  }
+}

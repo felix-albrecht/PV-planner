@@ -2,20 +2,21 @@
  * Cloudflare Worker: CORS proxy for the PVGIS 5.3 API.
  *
  * PVGIS sends no Access-Control-Allow-Origin header, so browsers block direct
- * calls from a static site. This worker forwards GET requests for the two
+ * calls from a static site. This worker forwards GET requests for the three
  * endpoints the app uses and adds the CORS header. It is NOT an open proxy:
  * only the whitelisted PVGIS endpoints are reachable, and only from the
  * origins listed in ALLOWED_ORIGINS (wrangler.toml).
  *
- *   https://<worker>.workers.dev/seriescalc?lat=..&lon=..   ->  PVGIS seriescalc
+ *   https://<worker>.workers.dev/PVcalc?lat=..&lon=..       ->  PVGIS PVcalc
+ *   https://<worker>.workers.dev/DRcalc?lat=..&lon=..       ->  PVGIS DRcalc
  *   https://<worker>.workers.dev/printhorizon?lat=..&lon=.. ->  PVGIS printhorizon
  *
  * Responses are cached at the Cloudflare edge, because PVGIS results for the
- * same parameters never change and a 19-year hourly series takes ~10 s.
+ * same parameters never change.
  */
 
 const PVGIS_BASE = "https://re.jrc.ec.europa.eu/api/v5_3/";
-const ENDPOINTS = new Set(["seriescalc", "printhorizon"]);
+const ENDPOINTS = new Set(["PVcalc", "DRcalc", "printhorizon"]);
 const CACHE_TTL_S = 30 * 24 * 3600;
 
 function corsHeaders(origin, env) {

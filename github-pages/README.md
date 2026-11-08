@@ -4,8 +4,8 @@ A static, server-less version of the app: the calculation that `app.py` does
 in Python runs in the browser instead (`index.html`).
 
 The PVGIS API does not send CORS headers, so a browser can't call it directly.
-A small Cloudflare Worker (`worker/`) forwards the two PVGIS endpoints the app
-uses (`seriescalc`, `printhorizon`) and adds the missing header. It also caches
+A small Cloudflare Worker (`worker/`) forwards the three PVGIS endpoints the app
+uses (`PVcalc`, `DRcalc`, `printhorizon`) and adds the missing header. It also caches
 PVGIS results at the edge for 30 days, so repeated calculations are fast.
 Address search calls OpenStreetMap Nominatim directly (it allows CORS).
 
@@ -65,5 +65,4 @@ Temporarily set `PROXY_URL = 'http://localhost:8787'` in `index.html`.
 - Sections are calculated in parallel instead of one after another.
 - Results are cached in the browser tab (per parameter set) and at the
   Cloudflare edge, instead of in the Flask process.
-- Each section downloads ~15 MB of hourly PVGIS data (19 years); Cloudflare
-  compresses it to a few MB on the way to the browser.
+- Both PVGIS calls per section run in parallel.

@@ -35,8 +35,29 @@ Search for your location and enter details about the PV system, like peak power,
 
 Then get the solar irradiation data and calculate monthly production, and daily profiles.
 
+## How it is calculated
+
+For each section, two small PVGIS calls (2005–2023 SARAH3 data, terrain horizon):
+
+- `PVcalc` gives the average energy per month (kWh), including temperature, angle-of-incidence and spectral effects for the chosen PV technology and mounting.
+- `DRcalc` gives the average daily irradiance profile per month on the panel plane.
+
+Each month's daily profile is scaled so it adds up to that month's energy. Compared with summing 19 years of hourly `seriescalc` data (~15 MB per section), the hourly shares differ by under 0.5 percentage points, at ~25 KB per section.
+
 ![PV production histogram](screenshots/histogram.png)
 
 ![PV production profile](screenshots/profile.png)
 
 Download the calculated data for further analysis as csv, and the PV config as json.
+
+# Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest                                 # Flask app + Flask/JS parity, offline (recorded PVGIS responses)
+pytest -m live                         # same parity check against the live PVGIS API
+node --test tests/worker.test.mjs      # Cloudflare Worker: origin/endpoint checks, caching
+```
+
+GitHub Actions runs the offline tests on every push and the live tests weekly (`.github/workflows/tests.yml`). After changing `tests/cases.json` or the PVGIS calls, re-record the responses with `python tests/record_fixtures.py`.
+

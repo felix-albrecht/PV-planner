@@ -1,9 +1,15 @@
 """PV production prediction webapp.
 
 Multiple panel sections (each with own kWp / tilt / azimuth / loss /
-PV technology / mounting type) are
-simulated via the PVGIS v5.3 API (hourly seriescalc, SARAH3 satellite data,
-terrain horizon shadowing from DEM by default, optional custom horizon).
+PV technology / mounting type) are simulated via the PVGIS v5.3 API
+(SARAH3 satellite data 2005-2023, terrain horizon shadowing from DEM by
+default, optional custom horizon). Per section, two small PVGIS calls:
+
+  PVcalc  -> average energy per month (kWh), including all PV losses
+  DRcalc  -> average daily irradiance profile per month on the panel plane
+
+Each month's daily profile is scaled so it sums to that month's energy,
+giving the mean production per (month, hour).
 
 Run with:  python app.py   then open http://127.0.0.1:5001
 """
@@ -14,13 +20,8 @@ from functools import lru_cache
 import requests
 from flask import Flask, jsonify, request, send_from_directory
 
-PVGIS_URL = "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc"
-HORIZON_URL = "https://re.jrc.ec.europa.eu/api/v5_3/printhorizon"
+PVGIS_BASE = "https://re.jrc.ec.europa.eu/api/v5_3/"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-
-START_YEAR = 2005
-END_YEAR = 2023
-N_YEARS = END_YEAR - START_YEAR + 1
 
 # PVGIS pvtechchoice / mountingplace values
 PV_TECHS = {"crystSi", "CIS", "CdTe", "Unknown"}
@@ -53,47 +54,44 @@ def geocode():
     return jsonify({"results": results})
 
 
-@lru_cache(maxsize=256)
-def pvgis_series(lat, lon, kwp, tilt, aspect, loss, userhorizon, pvtech, mounting):
-    """One PVGIS seriescalc call. Returns list of (month, hour_utc, power_W)."""
-    params = {
-        "lat": lat,
-        "lon": lon,
-        "pvcalculation": 1,
-        "peakpower": kwp,
-        "loss": loss,
-        "angle": tilt,
-        "aspect": aspect,
-        "pvtechchoice": pvtech,
-        "mountingplace": mounting,
-        "startyear": START_YEAR,
-        "endyear": END_YEAR,
-        "outputformat": "json",
-    }
-    if userhorizon:
-        params["userhorizon"] = userhorizon
-    r = requests.get(PVGIS_URL, params=params, timeout=120)
+def pvgis_get(endpoint, params):
+    if params.get("userhorizon") == "":
+        params = {k: v for k, v in params.items() if k != "userhorizon"}
+    r = requests.get(PVGIS_BASE + endpoint, params={**params, "outputformat": "json"}, timeout=60)
     if r.status_code != 200:
-        raise RuntimeError(f"PVGIS error {r.status_code}: {r.text[:300]}")
-    data = r.json()
-    out = []
-    for rec in data["outputs"]["hourly"]:
-        t = rec["time"]  # e.g. "20230101:0010" (UTC)
-        month = int(t[4:6])
-        hour = int(t[9:11])
-        out.append((month, hour, rec["P"]))
-    return out
+        raise RuntimeError(f"PVGIS {endpoint} error {r.status_code}: {r.text[:300]}")
+    return r.json()
+
+
+@lru_cache(maxsize=256)
+def pvgis_monthly(lat, lon, kwp, tilt, aspect, loss, userhorizon, pvtech, mounting):
+    """PVcalc: average energy per month in kWh (12 values) and the data period."""
+    data = pvgis_get("PVcalc", {
+        "lat": lat, "lon": lon, "peakpower": kwp, "loss": loss,
+        "angle": tilt, "aspect": aspect, "pvtechchoice": pvtech,
+        "mountingplace": mounting, "userhorizon": userhorizon,
+    })
+    meteo = data["inputs"]["meteo_data"]
+    monthly = [rec["E_m"] for rec in data["outputs"]["monthly"]["fixed"]]
+    return monthly, f"{meteo['year_min']}-{meteo['year_max']}"
+
+
+@lru_cache(maxsize=256)
+def pvgis_daily_profile(lat, lon, tilt, aspect, userhorizon):
+    """DRcalc: mean irradiance G(i) per (month, UTC hour) on the panel plane, W/m2."""
+    data = pvgis_get("DRcalc", {
+        "lat": lat, "lon": lon, "month": 0, "global": 1,
+        "angle": tilt, "aspect": aspect, "userhorizon": userhorizon,
+    })
+    g = [[0.0] * 24 for _ in range(12)]
+    for rec in data["outputs"]["daily_profile"]:
+        g[rec["month"] - 1][int(rec["time"][:2])] = rec["G(i)"]
+    return g
 
 
 @lru_cache(maxsize=64)
 def pvgis_horizon(lat, lon):
-    r = requests.get(
-        HORIZON_URL,
-        params={"lat": lat, "lon": lon, "outputformat": "json"},
-        timeout=60,
-    )
-    r.raise_for_status()
-    prof = r.json()["outputs"]["horizon_profile"]
+    prof = pvgis_get("printhorizon", {"lat": lat, "lon": lon})["outputs"]["horizon_profile"]
     return [(p["A"], p["H_hor"]) for p in prof]
 
 
@@ -106,6 +104,7 @@ def calculate():
     tz_offset = round(lon / 15.0)  # crude solar time zone, no DST
 
     sections_out = []
+    years = ""
     # month_hour[m][h] = mean production in Wh for that hour of that month (local time)
     total_month_hour = [[0.0] * 24 for _ in range(12)]
 
@@ -122,23 +121,22 @@ def calculate():
             return jsonify({"error": f"{name}: invalid pvtech/mounting"}), 400
 
         try:
-            series = pvgis_series(lat, lon, kwp, tilt, aspect, loss, userhorizon,
-                                  pvtech, mounting)
+            monthly_kwh, years = pvgis_monthly(lat, lon, kwp, tilt, aspect, loss,
+                                               userhorizon, pvtech, mounting)
+            g = pvgis_daily_profile(lat, lon, tilt, aspect, userhorizon)
         except RuntimeError as e:
             return jsonify({"error": f"{name}: {e}"}), 502
 
-        # Sum energy per (month, local hour); each sample is 1 h -> P in W == Wh
-        sums = [[0.0] * 24 for _ in range(12)]
-        for month, hour_utc, p in series:
-            h_local = (hour_utc + tz_offset) % 24
-            sums[month - 1][h_local] += p
-
-        month_hour = [
-            [sums[m][h] / (N_YEARS * calendar.monthrange(2023, m + 1)[1]) for h in range(24)]
-            for m in range(12)
-        ]
-        monthly_kwh = [sum(row) * calendar.monthrange(2023, m + 1)[1] / 1000.0
-                       for m, row in enumerate(month_hour)]
+        # Distribute each month's mean daily energy over the hours in
+        # proportion to the irradiance profile, shifted to local solar time.
+        month_hour = [[0.0] * 24 for _ in range(12)]
+        for m in range(12):
+            g_sum = sum(g[m])
+            if g_sum <= 0:
+                continue
+            wh_per_day = monthly_kwh[m] * 1000.0 / calendar.monthrange(2023, m + 1)[1]
+            for h_utc, gv in enumerate(g[m]):
+                month_hour[m][(h_utc + tz_offset) % 24] = wh_per_day * gv / g_sum
 
         for m in range(12):
             for h in range(24):
@@ -167,7 +165,7 @@ def calculate():
         "lat": lat,
         "lon": lon,
         "tz_offset": tz_offset,
-        "years": f"{START_YEAR}-{END_YEAR}",
+        "years": years,
         "horizon": horizon,
         "horizon_source": "user-supplied" if userhorizon else "DEM-calculated (PVGIS)",
         "sections": sections_out,

@@ -1,0 +1,49 @@
+# Offline tests run on every push / PR, using recorded PVGIS responses.
+# The live job calls the real PVGIS API weekly (and on demand) to catch API
+# changes; refresh the recordings with `python tests/record_fixtures.py`.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"  # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Flask app + Flask/JS parity
+        run: pytest -v
+      - name: Cloudflare Worker
+        run: node --test tests/worker.test.mjs
+
+  live:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Live PVGIS checks
+        run: pytest -v -m live
