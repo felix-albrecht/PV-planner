@@ -278,3 +278,38 @@ test("monthly results add up to the annual totals", () => {
     close(sum(r.monthly.map(m => m[k])), r.totals[k], 1e-9, k);
   }
 });
+
+test("battery usage metrics are consistent", () => {
+  const r = P.simulate(base({ batteries: [{ capacityKwh: 5, powerKw: 2.5, efficiencyPct: 90, sections: [0, 1] }], keepSeries: true }));
+  const b = r.perBattery[0];
+  assert.equal(b.dailyPeak.length, P.DAYS);
+  assert.ok(b.dailyPeak.every(v => v >= 0 && v <= 1 + 1e-6));
+  assert.ok(b.meanCharge <= b.typicalDailyPeak + 1e-9 && b.typicalDailyPeak <= b.maxCharge + 1e-9);
+  close(b.maxCharge, Math.max(...r.series.soc) / 5, 1e-5);
+  close(b.meanCharge, sum(r.series.soc) / P.STEPS / 5, 1e-5);
+  assert.ok(b.daysFull >= 0 && b.daysFull <= P.DAYS);
+  assert.ok(b.daysUnused >= 0 && b.daysUnused <= P.DAYS);
+});
+
+test("an oversized battery is never full", () => {
+  // 0.8 kW peak PV vs 0.4 kW constant demand: ~1-2 kWh midday surplus, used up every night
+  const r = P.simulate(base({ pv: [synthPv(0.8)], batteries: [{ capacityKwh: 40, powerKw: 5, efficiencyPct: 90, sections: [0] }] }));
+  const b = r.perBattery[0];
+  assert.ok(b.maxCharge < 0.5, `max charge ${b.maxCharge}`);
+  assert.equal(b.daysFull, 0);
+});
+
+test("a small battery on a big array is full most days", () => {
+  const r = P.simulate(base({ pv: [synthPv(8)], batteries: [{ capacityKwh: 2, powerKw: 2, efficiencyPct: 90, sections: [0] }] }));
+  const b = r.perBattery[0];
+  close(b.maxCharge, 1, 1e-6);
+  assert.ok(b.daysFull > 300, `days full ${b.daysFull}`);
+  assert.ok(b.daysUnused < 10);
+});
+
+test("battery without sections stays empty and counts as unused", () => {
+  const r = P.simulate(base({ batteries: [{ capacityKwh: 5, powerKw: 2.5, efficiencyPct: 90, sections: [] }] }));
+  const b = r.perBattery[0];
+  assert.equal(b.maxCharge, 0);
+  assert.equal(b.daysUnused, P.DAYS);
+});

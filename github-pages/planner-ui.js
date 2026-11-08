@@ -231,7 +231,13 @@ results.innerHTML = `
     </div>
     <div id="pl-weekchart"></div><div class="legend pl-legend" id="pl-wlegend"></div>
   </div>
-  <div class="card" id="pl-batcard"><h2>Batteries</h2><div class="pl-scroll" id="pl-battab"></div></div>
+  <div class="card" id="pl-batcard">
+    <h2>Batteries — how much of the capacity is used</h2>
+    <div class="pl-scroll" id="pl-battab"></div>
+    <div class="pl-note" id="pl-bathints" style="line-height:1.6"></div>
+    <h2 style="margin-top:18px">Highest charge per day</h2>
+    <div id="pl-batpeak"></div><div class="legend" id="pl-batlegend"></div>
+  </div>
   <button class="ghost" id="pl-dlsim">Download simulation (CSV, hourly)</button>
   <div class="note" id="pl-notes"></div>`;
 $('error').after(results);
@@ -744,19 +750,72 @@ results.querySelector('.pl-btns').addEventListener('click', e => {
   if (lastRun) renderWeek();
 });
 
+const BAT_COLORS = ['--s3', '--s7', '--s5', '--s6', '--s2', '--s1', '--s4', '--s8'];
+
 function renderBatteryTable() {
   const { withBat, inp } = lastRun;
   const secs = sectionList();
-  const rows = inp.batteries.map((b, i) => {
-    const pb = withBat.perBattery[i];
+  const active = inp.batteries.map((b, i) => ({ b, i, pb: withBat.perBattery[i] }));
+  $('pl-batcard').style.display = active.length ? '' : 'none';
+  if (!active.length) return;
+
+  const rows = active.map(({ b, i, pb }) => {
     const names = b.sections.map(si => `<span class="chip" style="background:${SER(si)}"></span>${esc(secs[si]?.name ?? '')}`).join(' ');
-    return `<tr><td>${esc(b.name)}</td><td>${fmt(b.capacityKwh, 1)} kWh</td><td>${fmt(b.powerKw, 1)} kW</td>
+    return `<tr><td><span class="chip" style="background:var(${BAT_COLORS[i % 8]})"></span>${esc(b.name)}</td>
+      <td>${fmt(b.capacityKwh, 1)} kWh</td><td>${fmt(b.powerKw, 1)} kW</td>
       <td style="text-align:left">${names || '<span class="pl-note">no sections</span>'}</td>
-      <td>${fmt(pb.charged)}</td><td>${fmt(pb.discharged)}</td><td>${fmt(pb.cycles)}</td><td>${fmt(pb.losses)}</td></tr>`;
+      <td>${fmt(pb.discharged)}</td><td>${fmt(pb.cycles)}</td>
+      <td>${pct(pb.maxCharge)}</td><td>${pct(pb.meanCharge)}</td><td>${pct(pb.typicalDailyPeak)}</td>
+      <td>${pb.daysFull}</td><td>${pb.daysUnused}</td><td>${fmt(pb.losses)}</td></tr>`;
   });
-  $('pl-batcard').style.display = rows.length ? '' : 'none';
   $('pl-battab').innerHTML = `<table class="pl"><tr><th>Battery</th><th>Capacity</th><th>Power</th><th style="text-align:left">Charged by</th>
-    <th>Charged kWh</th><th>Discharged kWh</th><th>Full cycles/yr</th><th>Losses kWh</th></tr>${rows.join('')}</table>`;
+    <th>Discharged kWh/yr</th><th>Full cycles/yr</th>
+    <th title="Highest state of charge reached in the whole year">Max. charge</th>
+    <th title="Average state of charge over all hours of the year">Mean charge</th>
+    <th title="Average of each day's highest state of charge">Typical daily peak</th>
+    <th title="Days on which the battery reached at least 98 %">Days full</th>
+    <th title="Days on which less than 5 % of the capacity was discharged">Days barely used</th>
+    <th>Losses kWh</th></tr>${rows.join('')}</table>`;
+
+  // plain-language sizing hints
+  $('pl-bathints').innerHTML = active.filter(({ b }) => b.capacityKwh > 0 && b.sections.length).map(({ b, pb }) => {
+    const used = pb.maxCharge * b.capacityKwh;
+    let hint;
+    if (pb.maxCharge < 0.98) {
+      hint = `never full — at most ${fmt(used, 1)} of ${fmt(b.capacityKwh, 1)} kWh are ever used, so the rest of the capacity is idle. A battery of about ${fmt(Math.max(0.5, used), 1)} kWh would perform the same.`;
+    } else if (pb.daysFull < 30) {
+      hint = `full on only ${pb.daysFull} days; on a typical day it peaks at ${pct(pb.typicalDailyPeak)}. A smaller battery would give almost the same result.`;
+    } else if (pb.daysFull > 180) {
+      hint = `full on ${pb.daysFull} days — surplus is often left over; more capacity would still store more (see the comparison above for its value).`;
+    } else {
+      hint = `full on ${pb.daysFull} days, typical daily peak ${pct(pb.typicalDailyPeak)} — reasonably sized for its sections.`;
+    }
+    return `<div><b>${esc(b.name)}</b>: ${hint}</div>`;
+  }).join('');
+
+  // highest charge per day over the year
+  const W = 960, H = 200, mL = 40, mB = 22, mT = 8;
+  const x = d => mL + (W - mL - 10) * d / P.DAYS, y = f => mT + (H - mT - mB) * (1 - f);
+  let g = '';
+  for (const f of [0, 0.5, 1]) g += `<line x1="${mL}" x2="${W - 10}" y1="${y(f)}" y2="${y(f)}" stroke="${css('--grid')}"/><text x="${mL - 6}" y="${y(f) + 4}" text-anchor="end">${f * 100}%</text>`;
+  const monthStart = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  monthStart.forEach((d, m) => { g += `<text x="${x(d + 15)}" y="${H - 6}" text-anchor="middle">${MONTHS[m]}</text>`; });
+  for (const { i, pb } of active) {
+    const pts = Array.from(pb.dailyPeak, (v, d) => `${x(d + 0.5).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    g += `<polyline points="${pts}" fill="none" stroke="${css(BAT_COLORS[i % 8])}" stroke-width="1.5" opacity="0.9"/>`;
+  }
+  const svg = svgEl(W, H, g);
+  svg.addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const d = Math.floor(((e.clientX - r.left) * W / r.width - mL) / (W - mL - 10) * P.DAYS);
+    if (d < 0 || d >= P.DAYS) return hideTip();
+    const date = new Date(Date.UTC(P.YEAR, 0, 1 + d)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    showTip(e, `${date}\n` + active.map(({ b, pb }) => `${b.name}: peak ${pct(pb.dailyPeak[d])}`).join('\n'));
+  });
+  svg.addEventListener('mouseleave', hideTip);
+  $('pl-batpeak').replaceChildren(svg);
+  $('pl-batlegend').innerHTML = active.map(({ b, i }) =>
+    `<span><span class="chip" style="background:var(${BAT_COLORS[i % 8]})"></span>${esc(b.name)}</span>`).join('');
 }
 
 $('pl-dlsim').addEventListener('click', () => {

@@ -288,6 +288,10 @@ export function simulate({ pv, demand, buy, sell, batteries = [], feedInLimitKw 
   const tot = zero();
   const monthly = Array.from({ length: 12 }, zero);
   const perBattery = batteries.map(() => ({ charged: 0, discharged: 0 }));
+  // charge statistics per battery: max / sum of state of charge, per-day peak and discharge
+  const socMax = new Float64Array(nB), socSum = new Float64Array(nB);
+  const dayPeak = batteries.map(() => new Float64Array(DAYS));
+  const dayDischarge = batteries.map(() => new Float64Array(DAYS));
   const series = keepSeries ? {
     pv: new Float32Array(STEPS), demand: new Float32Array(STEPS), imported: new Float32Array(STEPS),
     exported: new Float32Array(STEPS), soc: new Float32Array(STEPS),
@@ -325,6 +329,7 @@ export function simulate({ pv, demand, buy, sell, batteries = [], feedInLimitKw 
     }
 
     // 3. batteries cover the remaining demand
+    const day = (q / STEPS_PER_DAY) | 0;
     let discharged = 0;
     for (let b = 0; b < nB && rest > 1e-12; b++) {
       const d = Math.max(0, Math.min(rest, pMax[b], soc[b] * eta[b]));
@@ -332,6 +337,13 @@ export function simulate({ pv, demand, buy, sell, batteries = [], feedInLimitKw 
       rest -= d;
       discharged += d;
       perBattery[b].discharged += d;
+      dayDischarge[b][day] += d;
+    }
+    for (let b = 0; b < nB; b++) {
+      const v = soc[b];
+      socSum[b] += v;
+      if (v > socMax[b]) socMax[b] = v;
+      if (v > dayPeak[b][day]) dayPeak[b][day] = v;
     }
 
     // 4. grid
@@ -363,11 +375,22 @@ export function simulate({ pv, demand, buy, sell, batteries = [], feedInLimitKw 
   return {
     totals: derive(tot),
     monthly: monthly.map(derive),
-    perBattery: perBattery.map((p, i) => ({
-      ...p,
-      cycles: cap[i] > 0 ? p.discharged / cap[i] : 0,
-      losses: p.charged - p.discharged - soc[i],
-    })),
+    perBattery: perBattery.map((p, i) => {
+      const c = cap[i];
+      const frac = v => (c > 0 ? v / c : 0);
+      return {
+        ...p,
+        cycles: frac(p.discharged),
+        losses: p.charged - p.discharged - soc[i],
+        // how much of the capacity is actually used (fractions of capacity)
+        maxCharge: frac(socMax[i]),                    // highest state of charge in the year
+        meanCharge: frac(socSum[i] / STEPS),           // average state of charge
+        dailyPeak: Float32Array.from(dayPeak[i], frac),  // highest charge of each day
+        typicalDailyPeak: frac(dayPeak[i].reduce((a, v) => a + v, 0) / DAYS),
+        daysFull: c > 0 ? dayPeak[i].filter(v => v >= 0.98 * c).length : 0,
+        daysUnused: c > 0 ? dayDischarge[i].filter(v => v < 0.05 * c).length : DAYS,
+      };
+    }),
     capacityKwh: capTotal,
     series,
   };
