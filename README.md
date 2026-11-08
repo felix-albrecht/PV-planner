@@ -1,4 +1,4 @@
-# PV production predictor
+# PV Planner
 
 There are some very nice calculation tools for yearly/monthly/daily PV production, e.g.:
 - https://globalsolaratlas.info

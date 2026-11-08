@@ -66,7 +66,7 @@ export default {
 
     let resp = await cache.match(cacheKey);
     if (!resp) {
-      const r = await fetch(upstream, { headers: { "User-Agent": "pv-production-webapp-proxy/1.0" } });
+      const r = await fetch(upstream, { headers: { "User-Agent": "pv-planner-proxy/1.0" } });
       resp = new Response(r.body, {
         status: r.status,
         headers: { "Content-Type": r.headers.get("Content-Type") || "application/json" },

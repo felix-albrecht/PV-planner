@@ -47,7 +47,7 @@ const PROXY_URL = 'https://pvgis-proxy.<your-subdomain>.workers.dev';
 2. Push to `master`. The workflow `.github/workflows/pages.yml` publishes
    `github-pages/index.html` whenever something in `github-pages/` changes
    (or run it manually from the Actions tab).
-3. The app is then at `https://felix-albrecht.github.io/PV-production-predictor/`.
+3. The app is then at `https://felix-albrecht.github.io/PV-planner/`.
 
 ## Local testing
 

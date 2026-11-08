@@ -1,4 +1,4 @@
-"""PV production prediction webapp.
+"""PV Planner: PV production prediction and PV + battery planning webapp.
 
 Multiple panel sections (each with own kWp / tilt / azimuth / loss /
 PV technology / mounting type) are simulated via the PVGIS v5.3 API
@@ -83,7 +83,7 @@ def geocode():
     r = requests.get(
         NOMINATIM_URL,
         params={"q": q, "format": "json", "limit": 5},
-        headers={"User-Agent": "pv-production-webapp/1.0"},
+        headers={"User-Agent": "pv-planner/1.0"},
         timeout=15,
     )
     r.raise_for_status()
