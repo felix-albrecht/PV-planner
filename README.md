@@ -23,6 +23,8 @@ http://localhost:5001
 
 # Usage
 
+An example config is stored in `configs/pv_config_example_Berlin.json`.
+
 Search for your location and enter details about the PV system, like peak power, azimuth and tilt.
 
 Then get the solar irradiation data and calculate monthly production, and daily profiles.
