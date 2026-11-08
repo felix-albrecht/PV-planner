@@ -25,8 +25,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      # Publish only the page itself, not the worker source
-      - run: mkdir _site && cp github-pages/index.html _site/
+      # Publish the page, the power planner modules and data, not the worker source
+      - run: |
+          mkdir _site
+          cp github-pages/index.html github-pages/planner-*.js _site/
+          cp -r github-pages/data _site/
+          # icons / web manifest, if present
+          cp github-pages/*.png github-pages/*.ico github-pages/*.webmanifest _site/ 2>/dev/null || true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

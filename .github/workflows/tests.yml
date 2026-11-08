@@ -29,8 +29,8 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Flask app + Flask/JS parity
         run: pytest -v
-      - name: Cloudflare Worker
-        run: node --test tests/worker.test.mjs
+      - name: Cloudflare Worker + power planner core
+        run: node --test tests/worker.test.mjs tests/planner.test.mjs
 
   live:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

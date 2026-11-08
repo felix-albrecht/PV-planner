@@ -38,6 +38,7 @@ class FakeResponse:
         self.status_code = status_code
         self._data = data
         self.text = text or json.dumps(data)
+        self.content = self.text.encode()
 
     def json(self):
         return self._data

@@ -4,8 +4,9 @@ A static, server-less version of the app: the calculation that `app.py` does
 in Python runs in the browser instead (`index.html`).
 
 The PVGIS API does not send CORS headers, so a browser can't call it directly.
-A small Cloudflare Worker (`worker/`) forwards the three PVGIS endpoints the app
-uses (`PVcalc`, `DRcalc`, `printhorizon`) and adds the missing header. It also caches
+A small Cloudflare Worker (`worker/`) forwards the PVGIS endpoints the app
+uses (`PVcalc`, `DRcalc`, `printhorizon`, and single-year `seriescalc` for the
+power planner) and adds the missing header. It also caches
 PVGIS results at the edge for 30 days, so repeated calculations are fast.
 Address search calls OpenStreetMap Nominatim directly (it allows CORS).
 
@@ -55,7 +56,7 @@ cd github-pages/worker && npx wrangler dev          # worker on http://localhost
 ```
 
 ```bash
-cd github-pages && python3 -m http.server 8000      # page on http://localhost:8000
+cd github-pages && python3 -m http.server 8000      # page on http://localhost:8000 (modules need http, not file://)
 ```
 
 Temporarily set `PROXY_URL = 'http://localhost:8787'` in `index.html`.

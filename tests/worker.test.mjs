@@ -59,10 +59,19 @@ test("rejects other origins and requests without Origin", async () => {
 });
 
 test("rejects endpoints that are not whitelisted", async () => {
-  for (const path of ["/", "/seriescalc", "/tmy", "/pvcalc", "/PVcalc/extra", "/api/v5_3/PVcalc", "/..%2fPVcalc"]) {
+  for (const path of ["/", "/tmy", "/pvcalc", "/PVcalc/extra", "/api/v5_3/PVcalc", "/..%2fPVcalc"]) {
     assert.equal((await call(path + "?lat=1")).status, 404, path);
   }
   assert.equal(upstreamCalls.length, 0);
+});
+
+test("seriescalc is limited to a single year", async () => {
+  const ok = await call("/seriescalc?lat=1&startyear=2023&endyear=2023");
+  assert.equal(ok.status, 200);
+  for (const q of ["", "?startyear=2005&endyear=2023", "?startyear=2023", "?endyear=2023", "?startyear=&endyear="]) {
+    assert.equal((await call("/seriescalc" + q)).status, 400, q);
+  }
+  assert.equal(upstreamCalls.length, 1);
 });
 
 test("query string cannot change the upstream host or path", async () => {

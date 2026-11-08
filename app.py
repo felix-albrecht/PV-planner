@@ -16,6 +16,7 @@ Run with:  python app.py   then open http://127.0.0.1:5001
 
 import calendar
 from functools import lru_cache
+from pathlib import Path
 
 import requests
 from flask import Flask, jsonify, request, send_from_directory
@@ -33,6 +34,45 @@ app = Flask(__name__, static_folder="static")
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
+
+
+# Files shared with the static GitHub Pages version (power planner)
+SHARED_DIR = Path(__file__).parent / "github-pages"
+SHARED_FILES = {
+    "planner-core.js", "planner-ui.js", "site.webmanifest", "favicon.ico",
+    "favicon-16x16.png", "favicon-32x32.png", "apple-touch-icon.png",
+    "android-chrome-192x192.png", "android-chrome-512x512.png",
+}
+
+
+@app.route("/shared/<path:name>")
+def shared(name):
+    if name not in SHARED_FILES and not (name.startswith("data/") and name.endswith(".json")):
+        return jsonify({"error": "not found"}), 404
+    return send_from_directory(SHARED_DIR, name)
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(SHARED_DIR, "favicon.ico")
+
+
+@lru_cache(maxsize=64)
+def pvgis_seriescalc(query):
+    r = requests.get(PVGIS_BASE + "seriescalc", params=dict(query), timeout=120)
+    return r.status_code, r.content
+
+
+@app.route("/api/pvgis/seriescalc")
+def seriescalc_proxy():
+    """Hourly PV output for ONE year (power planner). Same rules as the worker."""
+    args = request.args
+    if not args.get("startyear") or args.get("startyear") != args.get("endyear"):
+        return jsonify({"error": "startyear and endyear must be the same single year"}), 400
+    status, content = pvgis_seriescalc(tuple(sorted(args.items())))
+    if status != 200:
+        pvgis_seriescalc.cache_clear()  # don't keep errors
+    return app.response_class(content, status=status, mimetype="application/json")
 
 
 @app.route("/api/geocode")

@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PV Production Predictor</title>
+<link rel="apple-touch-icon" sizes="180x180" href="/shared/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/shared/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/shared/favicon-16x16.png">
+<link rel="manifest" href="/shared/site.webmanifest">
 <style>
   :root {
     color-scheme: light;
@@ -109,7 +113,7 @@
   <div class="card">
     <h2>Panel sections</h2>
     <table class="sections">
-      <thead><tr><th></th><th>Name</th><th>kWp</th><th>Tilt °</th><th>Azimuth ° (180 = S, 90 = E, 270 = W)</th><th>Loss %</th><th title="PV module technology: affects temperature, low-light and spectral behaviour">Technology</th><th title="Free-standing: air flows behind the modules (on-roof with rail gap, balcony, ground). Building-integrated: no air gap (in-roof, flush façade) → hotter modules, ~3–4 % less yield">Mounting</th><th></th></tr></thead>
+      <thead><tr><th></th><th>Name</th><th>kWp</th><th>Tilt °</th><th>Azimuth ° (180 = S, 90 = E, 270 = W)</th><th>Loss %</th><th class="expert-only" title="PV module technology: affects temperature, low-light and spectral behaviour">Technology</th><th class="expert-only" title="Free-standing: air flows behind the modules (on-roof with rail gap, balcony, ground). Building-integrated: no air gap (in-roof, flush façade) → hotter modules, ~3–4 % less yield">Mounting</th><th></th></tr></thead>
       <tbody id="secBody"></tbody>
     </table>
     <button id="addSec" class="ghost" style="margin-top:8px">+ Add section</button>
@@ -176,13 +180,13 @@ function addSection(vals) {
     <td><input class="s-tilt" size="4" value="${vals?.tilt ?? 35}"></td>
     <td><input class="s-az" size="4" value="${vals?.az ?? 180}"></td>
     <td><input class="s-loss" size="4" value="${vals?.loss ?? 14}"></td>
-    <td><select class="s-tech">
+    <td class="expert-only"><select class="s-tech">
       <option value="crystSi">Crystalline Si</option>
       <option value="CIS">CIS / CIGS</option>
       <option value="CdTe">CdTe</option>
       <option value="Unknown">Other / unknown</option>
     </select></td>
-    <td><select class="s-mount">
+    <td class="expert-only"><select class="s-mount">
       <option value="free">Free (air gap)</option>
       <option value="building">Integrated</option>
     </select></td>
@@ -449,6 +453,7 @@ function currentConfig() {
     address: $('addr').value.trim(),
     userhorizon: $('userhorizon').value.trim(),
     sections: readSections(),
+    ...(window.pvExt?.getConfig() ?? {}),  // mode + power planner (planner-ui.js)
   };
 }
 function applyConfig(cfg) {
@@ -460,6 +465,7 @@ function applyConfig(cfg) {
   if (cfg.userhorizon) $('userhorizon').closest('details').open = true;
   $('secBody').innerHTML = '';
   cfg.sections.forEach(s => addSection({...s, az: s.azimuth}));
+  window.pvExt?.setConfig(cfg);
 }
 $('saveCfg').onclick = () => {
   const cfg = currentConfig();
@@ -496,5 +502,7 @@ function esc(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':
 function niceStep(max) { const raw = max / 5, p = Math.pow(10, Math.floor(Math.log10(raw))); for (const m of [1,2,2.5,5,10]) if (m * p >= raw) return m * p; return p * 10; }
 function round1(v) { return v >= 100 ? Math.round(v) : Math.round(v * 10) / 10; }
 </script>
+<script>window.PVGIS_PROXY = '/api/pvgis';</script>
+<script type="module" src="/shared/planner-ui.js"></script>
 </body>
 </html>

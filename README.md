@@ -50,13 +50,24 @@ Each month's daily profile is scaled so it adds up to that month's energy. Compa
 
 Download the calculated data for further analysis as csv, and the PV config as json.
 
+# Modes
+
+- **Basic**: sections with kWp, tilt, azimuth and losses.
+- **Expert**: adds PV technology and mounting type per section.
+- **Power planner**: PV + battery planning for a household. Simulates one year in 15-minute steps from PVGIS hourly data (one weather year per run) and gives autarky, self-consumption, grid import, feed-in and money saved, with and without batteries.
+  - Demand: constant, a weekly schedule of work / home-office / family days (typical consumption for 1–4 persons), or an uploaded load profile CSV (example download in the app).
+  - Batteries: any number, each charged by the sections you click (e.g. a balcony storage on the balcony panels, a home battery on the roof).
+  - Prices: fixed, dynamic (real 2025 German day-ahead prices, 15-minute from October, plus fees and VAT), or a custom daily curve / CSV; feed-in fixed or at spot market value.
+
+The planner code is shared by both versions: `github-pages/planner-core.js` (calculations) and `github-pages/planner-ui.js` (interface); Flask serves them under `/shared/`. Price data: Bundesnetzagentur | SMARD.de (CC BY 4.0) via energy-charts.info; regenerate with `python tools/fetch_prices.py`.
+
 # Tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest                                 # Flask app + Flask/JS parity, offline (recorded PVGIS responses)
 pytest -m live                         # same parity check against the live PVGIS API
-node --test tests/worker.test.mjs      # Cloudflare Worker: origin/endpoint checks, caching
+node --test tests/worker.test.mjs tests/planner.test.mjs   # worker rules; planner demand, CSV, prices, battery simulation
 ```
 
 GitHub Actions runs the offline tests on every push and the live tests weekly (`.github/workflows/tests.yml`). After changing `tests/cases.json` or the PVGIS calls, re-record the responses with `python tests/record_fixtures.py`.

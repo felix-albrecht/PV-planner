@@ -132,6 +132,52 @@ def test_horizon_profile_is_returned(client, pvgis):
     assert all(len(p) == 2 for p in d["horizon"])
 
 
+def test_seriescalc_proxy_single_year_only(client, monkeypatch):
+    calls = []
+
+    def fake_get(url, params=None, **kw):
+        calls.append((url, params))
+        return FakeResponse(200, {"outputs": {"hourly": []}})
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+    app_module.pvgis_seriescalc.cache_clear()
+    for q in ["", "?startyear=2005&endyear=2023", "?startyear=2023", "?endyear=2023"]:
+        assert client.get("/api/pvgis/seriescalc" + q).status_code == 400, q
+    assert calls == []
+    r = client.get("/api/pvgis/seriescalc?lat=48.08&lon=11.41&startyear=2023&endyear=2023")
+    assert r.status_code == 200
+    assert calls[0][0].endswith("/seriescalc")
+    assert calls[0][1] == {"lat": "48.08", "lon": "11.41", "startyear": "2023", "endyear": "2023"}
+    client.get("/api/pvgis/seriescalc?lat=48.08&lon=11.41&startyear=2023&endyear=2023")
+    assert len(calls) == 1  # cached
+    app_module.pvgis_seriescalc.cache_clear()
+
+
+def test_seriescalc_proxy_does_not_cache_errors(client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(app_module.requests, "get",
+                        lambda *a, **k: calls.append(1) or FakeResponse(400, text='{"message":"bad"}'))
+    app_module.pvgis_seriescalc.cache_clear()
+    for _ in range(2):
+        assert client.get("/api/pvgis/seriescalc?startyear=2023&endyear=2023").status_code == 400
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("path,status", [
+    ("/shared/planner-ui.js", 200),
+    ("/shared/planner-core.js", 200),
+    ("/shared/data/prices_DE-LU_2025.json", 200),
+    ("/shared/favicon-32x32.png", 200),
+    ("/shared/site.webmanifest", 200),
+    ("/favicon.ico", 200),
+    ("/shared/index.html", 404),
+    ("/shared/worker/worker.js", 404),
+    ("/shared/data/../worker/worker.js", 404),
+])
+def test_shared_files_whitelist(client, path, status):
+    assert client.get(path).status_code == status
+
+
 def test_geocode_requires_query(client):
     r = client.get("/api/geocode?q=")
     assert r.status_code == 400
