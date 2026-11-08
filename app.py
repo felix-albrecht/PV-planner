@@ -1,6 +1,7 @@
 """PV production prediction webapp.
 
-Multiple panel sections (each with own kWp / tilt / azimuth / loss) are
+Multiple panel sections (each with own kWp / tilt / azimuth / loss /
+PV technology / mounting type) are
 simulated via the PVGIS v5.3 API (hourly seriescalc, SARAH3 satellite data,
 terrain horizon shadowing from DEM by default, optional custom horizon).
 
@@ -17,9 +18,13 @@ PVGIS_URL = "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc"
 HORIZON_URL = "https://re.jrc.ec.europa.eu/api/v5_3/printhorizon"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
-START_YEAR = 2018
+START_YEAR = 2005
 END_YEAR = 2023
 N_YEARS = END_YEAR - START_YEAR + 1
+
+# PVGIS pvtechchoice / mountingplace values
+PV_TECHS = {"crystSi", "CIS", "CdTe", "Unknown"}
+MOUNTINGS = {"free", "building"}
 
 app = Flask(__name__, static_folder="static")
 
@@ -49,7 +54,7 @@ def geocode():
 
 
 @lru_cache(maxsize=256)
-def pvgis_series(lat, lon, kwp, tilt, aspect, loss, userhorizon):
+def pvgis_series(lat, lon, kwp, tilt, aspect, loss, userhorizon, pvtech, mounting):
     """One PVGIS seriescalc call. Returns list of (month, hour_utc, power_W)."""
     params = {
         "lat": lat,
@@ -59,6 +64,8 @@ def pvgis_series(lat, lon, kwp, tilt, aspect, loss, userhorizon):
         "loss": loss,
         "angle": tilt,
         "aspect": aspect,
+        "pvtechchoice": pvtech,
+        "mountingplace": mounting,
         "startyear": START_YEAR,
         "endyear": END_YEAR,
         "outputformat": "json",
@@ -109,9 +116,14 @@ def calculate():
         azimuth = float(sec["azimuth"])  # compass: 180 = south
         loss = float(sec.get("loss", 14))
         aspect = azimuth - 180.0  # PVGIS convention: 0 = south, 90 = west
+        pvtech = sec.get("pvtech", "crystSi")
+        mounting = sec.get("mounting", "free")
+        if pvtech not in PV_TECHS or mounting not in MOUNTINGS:
+            return jsonify({"error": f"{name}: invalid pvtech/mounting"}), 400
 
         try:
-            series = pvgis_series(lat, lon, kwp, tilt, aspect, loss, userhorizon)
+            series = pvgis_series(lat, lon, kwp, tilt, aspect, loss, userhorizon,
+                                  pvtech, mounting)
         except RuntimeError as e:
             return jsonify({"error": f"{name}: {e}"}), 502
 
@@ -137,6 +149,8 @@ def calculate():
             "kwp": kwp,
             "tilt": tilt,
             "azimuth": azimuth,
+            "pvtech": pvtech,
+            "mounting": mounting,
             "monthly_kwh": monthly_kwh,
             "month_hour_wh": month_hour,
             "annual_kwh": sum(monthly_kwh),

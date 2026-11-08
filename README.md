@@ -21,6 +21,10 @@ Then open the web app:
 http://localhost:5001
 ```
 
+## Static version (GitHub Pages)
+
+`github-pages/` contains a server-less version that runs the calculation in the browser and reaches PVGIS through a small Cloudflare Worker. See [github-pages/README.md](github-pages/README.md) for deployment.
+
 # Usage
 
 An example config is stored in `configs/pv_config_example_Berlin.json`.

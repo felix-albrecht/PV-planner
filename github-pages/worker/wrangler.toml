@@ -1,0 +1,9 @@
+name = "pvgis-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Comma-separated list of origins allowed to use the proxy.
+# Replace with your GitHub Pages origin, e.g. "https://<user>.github.io".
+# Local testing origins can be added, e.g. ",http://localhost:8000".
+ALLOWED_ORIGINS = "https://felix-albrecht.github.io,http://localhost:8000"

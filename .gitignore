@@ -1,0 +1,4 @@
+*.DS_Store
+venv
+github-pages/worker/.wrangler
+github-pages/worker/node_modules

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PV Production Predictor</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --page: #f9f9f7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+    --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+    --seq-lo: 205,226,251; --seq-hi: 13,54,107;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+      --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+      --seq-lo: 24,36,52; --seq-hi: 134,182,239;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px; line-height: 1.45;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; margin-bottom: 18px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 10px; color: var(--text-secondary); font-weight: 600; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
+  input, button, textarea, select {
+    font: inherit; color: var(--text-primary); background: var(--page);
+    border: 1px solid var(--baseline); border-radius: 6px; padding: 6px 8px;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--s1); outline-offset: -1px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .row > div { display: flex; flex-direction: column; }
+  button { cursor: pointer; }
+  button.primary { background: var(--s1); color: #fff; border-color: transparent; font-weight: 600; padding: 8px 16px; }
+  button.ghost { background: transparent; }
+  table.sections { border-collapse: collapse; width: 100%; }
+  table.sections th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 2px 8px 6px 0; }
+  table.sections td { padding: 2px 8px 2px 0; }
+  table.sections input, table.sections select { width: 100%; }
+  .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: baseline; }
+  #geoResults { margin-top: 6px; }
+  #geoResults button { display: block; width: 100%; text-align: left; margin-top: 4px; border-color: var(--border); background: var(--surface-1); }
+  #geoResults button:hover { border-color: var(--s1); }
+  .tiles { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; min-width: 160px; }
+  .tile .v { font-size: 26px; font-weight: 650; }
+  .tile .l { font-size: 12px; color: var(--muted); }
+  svg text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 0; font-size: 12px; color: var(--text-secondary); }
+  #tooltip {
+    position: fixed; pointer-events: none; display: none; z-index: 10;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.18); white-space: pre;
+  }
+  .hm { display: grid; gap: 2px; margin-top: 6px; }
+  .hm .cell { border-radius: 2px; aspect-ratio: auto; height: 16px; }
+  .hm .hdr, .hm .rowlbl { font-size: 11px; color: var(--muted); display: flex; align-items: center; justify-content: center; }
+  .hm .rowlbl { justify-content: flex-end; padding-right: 6px; font-variant-numeric: tabular-nums; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  #results { display: none; }
+  .err { color: #d03b3b; font-weight: 600; margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+  .tabs button { background: transparent; border-color: var(--border); font-size: 12px; padding: 4px 10px; border-radius: 999px; color: var(--text-secondary); }
+  .tabs button.active { border-color: var(--s1); color: var(--text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PV Production Predictor</h1>
+  <p class="sub">Multi-section PV yield from PVGIS hourly satellite data (SARAH3, 2005–2023 average), including terrain horizon shadowing.</p>
+
+  <div class="card">
+    <h2>Location</h2>
+    <div class="row">
+      <div style="flex:1; min-width:260px">
+        <label for="addr">Address search</label>
+        <input id="addr" placeholder="e.g. Marienplatz, München">
+      </div>
+      <div><button id="geoBtn" class="ghost">Search</button></div>
+      <div><label for="lat">Latitude</label><input id="lat" size="9" value="48.137"></div>
+      <div><label for="lon">Longitude</label><input id="lon" size="9" value="11.575"></div>
+    </div>
+    <div id="geoResults"></div>
+    <details style="margin-top:10px">
+      <summary>Custom horizon (optional)</summary>
+      <label for="userhorizon" style="margin-top:6px">Comma-separated horizon heights in degrees, equally spaced clockwise starting north (leave empty to use PVGIS terrain horizon)</label>
+      <input id="userhorizon" style="width:100%" placeholder="e.g. 0,0,5,12,20,15,8,2 (8 values = every 45°)">
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Panel sections</h2>
+    <table class="sections">
+      <thead><tr><th></th><th>Name</th><th>kWp</th><th>Tilt °</th><th>Azimuth ° (180 = S, 90 = E, 270 = W)</th><th>Loss %</th><th title="PV module technology: affects temperature, low-light and spectral behaviour">Technology</th><th title="Free-standing: air flows behind the modules (on-roof with rail gap, balcony, ground). Building-integrated: no air gap (in-roof, flush façade) → hotter modules, ~3–4 % less yield">Mounting</th><th></th></tr></thead>
+      <tbody id="secBody"></tbody>
+    </table>
+    <button id="addSec" class="ghost" style="margin-top:8px">+ Add section</button>
+  </div>
+
+  <button id="calc" class="primary">Calculate production</button>
+  <button id="saveCfg" class="ghost">Save config</button>
+  <button id="loadCfg" class="ghost">Load config</button>
+  <input type="file" id="cfgFile" accept=".json,application/json" style="display:none">
+  <span id="status" style="margin-left:12px; color:var(--muted)"></span>
+  <div id="error" class="err"></div>
+
+  <div id="results">
+    <div class="tiles" id="tiles" style="margin-top:20px"></div>
+
+    <div class="card">
+      <h2>Monthly production by section (kWh)</h2>
+      <div id="monthlyChart"></div>
+      <div class="legend" id="monthlyLegend"></div>
+    </div>
+
+    <div class="card">
+      <h2>Average hourly production by month (Wh per hour, local solar time)</h2>
+      <div id="hmTabs" class="tabs"></div>
+      <div id="heatmap"></div>
+      <div id="colorbar"></div>
+      <div class="note" style="display:flex; justify-content:space-between; align-items:center">
+        <span>Darker = more production. Hover a cell for the value.</span>
+        <label style="display:flex; gap:6px; align-items:center; margin:0; cursor:pointer">
+          <input type="checkbox" id="hmConsistent" checked>
+          same color scale for all sections
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Horizon profile at this location</h2>
+      <div id="horizonChart"></div>
+      <div class="note" id="horizonNote"></div>
+    </div>
+
+    <button id="dlCsv" class="ghost">Download CSV (hours × months, Wh — same format as GSA reports)</button>
+    <button id="dlJson" class="ghost">Download full JSON</button>
+  </div>
+</div>
+<div id="tooltip"></div>
+
+<script>
+/* =====================================================================
+ * Calculation engine (browser port of app.py).
+ * PVGIS is reached through the Cloudflare Worker in worker/ because the
+ * PVGIS API sends no CORS headers. Set PROXY_URL after deploying it.
+ * ===================================================================== */
+const PROXY_URL = 'https://pvgis-proxy.felixalbrecht.workers.dev';
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+const START_YEAR = 2005, END_YEAR = 2023, N_YEARS = END_YEAR - START_YEAR + 1;
+const PV_TECHS = ['crystSi', 'CIS', 'CdTe', 'Unknown'];
+const MOUNTINGS = ['free', 'building'];
+const daysInMonth = m => new Date(2023, m + 1, 0).getDate();  // m: 0-based
+const round4 = x => Math.round(x * 1e4) / 1e4;
+
+async function geocode(q) {
+  const params = new URLSearchParams({q, format: 'json', limit: 5});
+  const r = await fetch(`${NOMINATIM_URL}?${params}`);
+  if (!r.ok) throw new Error(`Nominatim error ${r.status}`);
+  const hits = await r.json();
+  return {results: hits.map(h => ({name: h.display_name, lat: +h.lat, lon: +h.lon}))};
+}
+
+// Cache per parameter set: the summed energy per (month, UTC hour).
+// Keeping only these 12x24 sums instead of the ~170k-row series saves memory.
+const seriesCache = new Map();
+function pvgisSums(params) {
+  const key = JSON.stringify(params);
+  if (!seriesCache.has(key)) {
+    const p = (async () => {
+      const qs = new URLSearchParams({
+        ...params, pvcalculation: 1, startyear: START_YEAR, endyear: END_YEAR, outputformat: 'json',
+      });
+      if (!params.userhorizon) qs.delete('userhorizon');
+      const r = await fetch(`${PROXY_URL}/seriescalc?${qs}`);
+      if (!r.ok) throw new Error(`PVGIS error ${r.status}: ${(await r.text()).slice(0, 300)}`);
+      const data = await r.json();
+      const sums = Array.from({length: 12}, () => new Array(24).fill(0));
+      for (const rec of data.outputs.hourly) {
+        const t = rec.time;  // e.g. "20230101:0010" (UTC)
+        sums[+t.slice(4, 6) - 1][+t.slice(9, 11)] += rec.P;
+      }
+      return sums;
+    })();
+    p.catch(() => seriesCache.delete(key));  // don't cache failures
+    seriesCache.set(key, p);
+  }
+  return seriesCache.get(key);
+}
+
+const horizonCache = new Map();
+function pvgisHorizon(lat, lon) {
+  const key = `${lat},${lon}`;
+  if (!horizonCache.has(key)) {
+    const p = fetch(`${PROXY_URL}/printhorizon?${new URLSearchParams({lat, lon, outputformat: 'json'})}`)
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(d => d.outputs.horizon_profile.map(pt => [pt.A, pt.H_hor]));
+    p.catch(() => horizonCache.delete(key));
+    horizonCache.set(key, p);
+  }
+  return horizonCache.get(key);
+}
+
+async function calculate(body) {
+  const lat = round4(body.lat), lon = round4(body.lon);
+  if (!isFinite(lat) || !isFinite(lon)) throw new Error('invalid latitude/longitude');
+  const userhorizon = (body.userhorizon || '').trim();
+  const tzOffset = Math.round(lon / 15);  // crude solar time zone, no DST
+
+  const sectionsOut = await Promise.all(body.sections.map(async sec => {
+    const name = sec.name || 'Section';
+    const {kwp, tilt, azimuth} = sec;
+    const loss = isFinite(sec.loss) ? sec.loss : 14;
+    const pvtech = sec.pvtech || 'crystSi', mounting = sec.mounting || 'free';
+    if (![kwp, tilt, azimuth].every(isFinite)) throw new Error(`${name}: kWp, tilt and azimuth must be numbers`);
+    if (!PV_TECHS.includes(pvtech) || !MOUNTINGS.includes(mounting)) throw new Error(`${name}: invalid pvtech/mounting`);
+
+    let sums;
+    try {
+      sums = await pvgisSums({
+        lat, lon, peakpower: kwp, loss, angle: tilt,
+        aspect: azimuth - 180,  // PVGIS convention: 0 = south, 90 = west
+        pvtechchoice: pvtech, mountingplace: mounting, userhorizon,
+      });
+    } catch (e) { throw new Error(`${name}: ${e.message}`); }
+
+    // Shift UTC hours to local solar time; each sample is 1 h -> W == Wh
+    const monthHour = sums.map((row, m) => {
+      const out = new Array(24).fill(0);
+      row.forEach((v, hUtc) => { out[(((hUtc + tzOffset) % 24) + 24) % 24] = v / (N_YEARS * daysInMonth(m)); });
+      return out;
+    });
+    const monthlyKwh = monthHour.map((row, m) => row.reduce((a, b) => a + b, 0) * daysInMonth(m) / 1000);
+    return {
+      name, kwp, tilt, azimuth, pvtech, mounting,
+      monthly_kwh: monthlyKwh,
+      month_hour_wh: monthHour,
+      annual_kwh: monthlyKwh.reduce((a, b) => a + b, 0),
+    };
+  }));
+
+  const totalMonthHour = Array.from({length: 12}, (_, m) =>
+    Array.from({length: 24}, (_, h) => sectionsOut.reduce((a, s) => a + s.month_hour_wh[m][h], 0)));
+  const totalMonthly = Array.from({length: 12}, (_, m) =>
+    sectionsOut.reduce((a, s) => a + s.monthly_kwh[m], 0));
+  const horizon = await pvgisHorizon(lat, lon).catch(() => []);
+
+  return {
+    lat, lon, tz_offset: tzOffset,
+    years: `${START_YEAR}-${END_YEAR}`,
+    horizon,
+    horizon_source: userhorizon ? 'user-supplied' : 'DEM-calculated (PVGIS)',
+    sections: sectionsOut,
+    total_monthly_kwh: totalMonthly,
+    total_month_hour_wh: totalMonthHour,
+    total_annual_kwh: totalMonthly.reduce((a, b) => a + b, 0),
+  };
+}
+</script>
+
+<script>
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const SERIES = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'];
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const $ = id => document.getElementById(id);
+let lastResult = null;
+
+/* ---------- sections table ---------- */
+function addSection(vals) {
+  const tb = $('secBody');
+  const i = tb.children.length;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><span class="chip" style="background:var(${SERIES[i % 8]})"></span></td>
+    <td><input class="s-name" value="${vals?.name ?? 'Section ' + (i+1)}"></td>
+    <td><input class="s-kwp" size="5" value="${vals?.kwp ?? 0.8}"></td>
+    <td><input class="s-tilt" size="4" value="${vals?.tilt ?? 35}"></td>
+    <td><input class="s-az" size="4" value="${vals?.az ?? 180}"></td>
+    <td><input class="s-loss" size="4" value="${vals?.loss ?? 14}"></td>
+    <td><select class="s-tech">
+      <option value="crystSi">Crystalline Si</option>
+      <option value="CIS">CIS / CIGS</option>
+      <option value="CdTe">CdTe</option>
+      <option value="Unknown">Other / unknown</option>
+    </select></td>
+    <td><select class="s-mount">
+      <option value="free">Free (air gap)</option>
+      <option value="building">Integrated</option>
+    </select></td>
+    <td><button class="ghost s-del">✕</button></td>`;
+  tr.querySelector('.s-tech').value = vals?.pvtech ?? 'crystSi';
+  tr.querySelector('.s-mount').value = vals?.mounting ?? 'free';
+  tr.querySelector('.s-del').onclick = () => { tr.remove(); recolor(); };
+  tb.appendChild(tr);
+}
+function recolor() {
+  [...$('secBody').children].forEach((tr, i) =>
+    tr.querySelector('.chip').style.background = `var(${SERIES[i % 8]})`);
+}
+function readSections() {
+  return [...$('secBody').children].map(tr => ({
+    name: tr.querySelector('.s-name').value,
+    kwp: parseFloat(tr.querySelector('.s-kwp').value),
+    tilt: parseFloat(tr.querySelector('.s-tilt').value),
+    azimuth: parseFloat(tr.querySelector('.s-az').value),
+    loss: parseFloat(tr.querySelector('.s-loss').value),
+    pvtech: tr.querySelector('.s-tech').value,
+    mounting: tr.querySelector('.s-mount').value,
+  }));
+}
+$('addSec').onclick = () => addSection();
+addSection({name: 'South roof', kwp: 0.8, tilt: 37, az: 180});
+addSection({name: 'Balcony', kwp: 0.8, tilt: 90, az: 180});
+
+/* ---------- geocoding ---------- */
+$('geoBtn').onclick = async () => {
+  const q = $('addr').value.trim();
+  if (!q) return;
+  $('geoResults').textContent = 'Searching…';
+  try {
+    const d = await geocode(q);
+    $('geoResults').innerHTML = '';
+    if (!d.results.length) { $('geoResults').textContent = 'No results.'; return; }
+    d.results.forEach(hit => {
+      const b = document.createElement('button');
+      b.textContent = hit.name;
+      b.onclick = () => {
+        $('lat').value = hit.lat.toFixed(4);
+        $('lon').value = hit.lon.toFixed(4);
+        $('geoResults').innerHTML = '';
+      };
+      $('geoResults').appendChild(b);
+    });
+  } catch (e) { $('geoResults').textContent = 'Geocoding failed: ' + e; }
+};
+$('addr').addEventListener('keydown', e => { if (e.key === 'Enter') $('geoBtn').click(); });
+
+/* ---------- tooltip ---------- */
+const tip = $('tooltip');
+function showTip(e, text) {
+  tip.style.display = 'block'; tip.textContent = text;
+  tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 10) + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+
+/* ---------- calculate ---------- */
+$('calc').onclick = async () => {
+  const sections = readSections();
+  if (!sections.length) { $('error').textContent = 'Add at least one section.'; return; }
+  $('error').textContent = '';
+  $('status').textContent = 'Querying PVGIS (first run per section takes ~10–30 s)…';
+  $('calc').disabled = true;
+  try {
+    const d = await calculate({
+      lat: parseFloat($('lat').value), lon: parseFloat($('lon').value),
+      userhorizon: $('userhorizon').value.trim(), sections,
+    });
+    lastResult = d;
+    render(d);
+  } catch (e) {
+    $('error').textContent = 'Calculation failed: ' + e.message;
+  } finally {
+    $('status').textContent = '';
+    $('calc').disabled = false;
+  }
+};
+
+/* ---------- rendering ---------- */
+function render(d) {
+  $('results').style.display = 'block';
+  const kwpTotal = d.sections.reduce((a, s) => a + s.kwp, 0);
+  $('tiles').innerHTML = `
+    <div class="tile"><div class="v">${Math.round(d.total_annual_kwh)} kWh</div><div class="l">predicted per year (avg ${d.years})</div></div>
+    <div class="tile"><div class="v">${Math.round(d.total_annual_kwh / kwpTotal)} kWh/kWp</div><div class="l">specific yield</div></div>
+    <div class="tile"><div class="v">${kwpTotal.toFixed(2)} kWp</div><div class="l">${d.sections.length} section${d.sections.length > 1 ? 's' : ''}</div></div>`;
+  renderMonthly(d);
+  renderHeatmap(d);
+  renderHorizon(d);
+}
+
+function renderMonthly(d) {
+  const W = 960, H = 300, mL = 46, mB = 24, mT = 10;
+  const maxV = Math.max(...d.total_monthly_kwh) * 1.08;
+  const y = v => mT + (H - mT - mB) * (1 - v / maxV);
+  const bw = (W - mL - 20) / 12;
+  let g = '';
+  // gridlines
+  const step = niceStep(maxV);
+  for (let v = 0; v <= maxV; v += step) {
+    g += `<line x1="${mL}" x2="${W-10}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--grid')}" stroke-width="1"/>`;
+    g += `<text x="${mL-6}" y="${y(v)+4}" text-anchor="end">${round1(v)}</text>`;
+  }
+  const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgEl.style.width = '100%';
+  svgEl.innerHTML = g + `<line x1="${mL}" x2="${W-10}" y1="${y(0)}" y2="${y(0)}" stroke="${css('--baseline')}" stroke-width="1"/>`;
+  for (let m = 0; m < 12; m++) {
+    let acc = 0;
+    d.sections.forEach((s, si) => {
+      const v = s.monthly_kwh[m];
+      const y0 = y(acc), y1 = y(acc + v);
+      acc += v;
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      const x = mL + bw * m + bw * 0.18;
+      rect.setAttribute('x', x); rect.setAttribute('width', bw * 0.64);
+      rect.setAttribute('y', y1 + (si ? 1 : 0));
+      rect.setAttribute('height', Math.max(0, y0 - y1 - (si ? 1 : 0)));
+      rect.setAttribute('fill', css(SERIES[si % 8]));
+      if (si === d.sections.length - 1) rect.setAttribute('rx', 3);
+      rect.addEventListener('mousemove', e =>
+        showTip(e, `${s.name} — ${MONTHS[m]}\n${v.toFixed(1)} kWh  (month total ${d.total_monthly_kwh[m].toFixed(1)} kWh)`));
+      rect.addEventListener('mouseleave', hideTip);
+      svgEl.appendChild(rect);
+    });
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', mL + bw * m + bw / 2); t.setAttribute('y', H - 6);
+    t.setAttribute('text-anchor', 'middle'); t.textContent = MONTHS[m];
+    svgEl.appendChild(t);
+  }
+  $('monthlyChart').replaceChildren(svgEl);
+  $('monthlyLegend').innerHTML = d.sections.map((s, i) =>
+    `<span><span class="chip" style="background:var(${SERIES[i % 8]})"></span>${esc(s.name)} — ${Math.round(s.annual_kwh)} kWh/yr (${s.tilt}°/${s.azimuth}°)</span>`).join('');
+}
+
+let hmSelection = -1; // -1 = all sections, otherwise section index
+
+function renderHeatmap(d) {
+  if (hmSelection >= d.sections.length) hmSelection = -1;
+  const tabs = $('hmTabs');
+  tabs.innerHTML = '';
+  const mkTab = (label, sel, chipVar) => {
+    const b = document.createElement('button');
+    if (chipVar) b.innerHTML = `<span class="chip" style="background:var(${chipVar})"></span>`;
+    b.appendChild(document.createTextNode(label));
+    if (sel === hmSelection) b.classList.add('active');
+    b.onclick = () => { hmSelection = sel; renderHeatmap(d); };
+    tabs.appendChild(b);
+  };
+  mkTab('All sections', -1, null);
+  d.sections.forEach((s, i) => mkTab(s.name, i, SERIES[i % 8]));
+
+  const mh = hmSelection < 0 ? d.total_month_hour_wh
+                             : d.sections[hmSelection].month_hour_wh; // [12][24]
+  const ownMax = Math.max(...mh.flat());
+  const consistent = $('hmConsistent').checked;
+  // consistent mode: one scale across all single-section views ("All sections" keeps its own)
+  const maxV = (consistent && hmSelection >= 0)
+    ? Math.max(...d.sections.map(s => Math.max(...s.month_hour_wh.flat())))
+    : ownMax;
+  const lo = css('--seq-lo').split(',').map(Number), hi = css('--seq-hi').split(',').map(Number);
+  const col = f => `rgb(${lo.map((l, i) => Math.round(l + (hi[i] - l) * f)).join(',')})`;
+  const grid = document.createElement('div');
+  grid.className = 'hm';
+  grid.style.gridTemplateColumns = `44px repeat(12, 1fr)`;
+  grid.appendChild(el('div', 'hdr', ''));
+  MONTHS.forEach(m => grid.appendChild(el('div', 'hdr', m)));
+  for (let h = 4; h < 22; h++) {
+    grid.appendChild(el('div', 'rowlbl', `${h}–${h+1}`));
+    for (let m = 0; m < 12; m++) {
+      const v = mh[m][h];
+      const c = el('div', 'cell', '');
+      c.style.background = v > 0 ? col(Math.pow(v / maxV, 0.7)) : 'transparent';
+      c.style.border = `1px solid ${css('--grid')}`;
+      const who = hmSelection < 0 ? 'all sections' : d.sections[hmSelection].name;
+      c.addEventListener('mousemove', e => showTip(e, `${MONTHS[m]}, ${h}:00–${h+1}:00\n${Math.round(v)} Wh (${who})`));
+      c.addEventListener('mouseleave', hideTip);
+      grid.appendChild(c);
+    }
+  }
+  $('heatmap').replaceChildren(grid);
+  renderColorbar(maxV, col);
+}
+
+function renderColorbar(maxV, col) {
+  // bar axis is linear in Wh; color at fraction f mirrors the cell mapping f^0.7
+  const stops = [];
+  for (let i = 0; i <= 20; i++) {
+    const f = i / 20;
+    stops.push(`${col(Math.pow(f, 0.7))} ${(f * 100).toFixed(0)}%`);
+  }
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'margin:10px 0 2px 44px;';
+  const bar = document.createElement('div');
+  bar.style.cssText = `height:10px;border-radius:3px;border:1px solid ${css('--grid')};` +
+    `background:linear-gradient(to right, ${stops.join(',')});`;
+  const ticks = document.createElement('div');
+  ticks.style.cssText = 'display:flex;justify-content:space-between;font-size:11px;' +
+    `color:${css('--muted')};margin-top:2px;font-variant-numeric:tabular-nums;`;
+  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+    const t = document.createElement('span');
+    t.textContent = Math.round(maxV * f) + (f === 1 ? ' Wh' : '');
+    ticks.appendChild(t);
+  });
+  wrap.append(bar, ticks);
+  $('colorbar').replaceChildren(wrap);
+}
+$('hmConsistent').addEventListener('change', () => { if (lastResult) renderHeatmap(lastResult); });
+
+function renderHorizon(d) {
+  if (!d.horizon.length) { $('horizonChart').innerHTML = ''; $('horizonNote').textContent = 'No horizon profile available.'; return; }
+  const W = 960, H = 180, mL = 40, mB = 22, mT = 8;
+  const maxE = Math.max(10, ...d.horizon.map(p => p[1])) * 1.15;
+  // PVGIS azimuth: 0 = south; convert to compass 0..360 (N=0) for display
+  const pts = d.horizon.map(([a, e]) => [((a + 180) % 360 + 360) % 360, e]).sort((p, q) => p[0] - q[0]);
+  const x = a => mL + (W - mL - 10) * a / 360;
+  const y = v => mT + (H - mT - mB) * (1 - v / maxE);
+  let path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
+  path += `L${x(360)},${y(pts[0][1])}`;
+  const area = path + `L${x(360)},${y(0)}L${x(0)},${y(0)}Z`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%">`;
+  for (const v of [0, 10, 20, 30, 40]) if (v < maxE)
+    s += `<line x1="${mL}" x2="${W-10}" y1="${y(v)}" y2="${y(v)}" stroke="${css('--grid')}"/><text x="${mL-5}" y="${y(v)+4}" text-anchor="end">${v}°</text>`;
+  s += `<path d="${area}" fill="${css('--s1')}" opacity="0.25"/><path d="${path}" fill="none" stroke="${css('--s1')}" stroke-width="2"/>`;
+  [['N',0],['E',90],['S',180],['W',270],['N',360]].forEach(([l, a]) =>
+    s += `<text x="${x(a)}" y="${H-5}" text-anchor="middle">${l}</text>`);
+  s += `<line x1="${mL}" x2="${W-10}" y1="${y(0)}" y2="${y(0)}" stroke="${css('--baseline')}"/></svg>`;
+  $('horizonChart').innerHTML = s;
+  $('horizonNote').textContent = `Horizon used for shading: ${d.horizon_source}. Terrain only — nearby buildings/trees are not in the DEM; add them via the custom horizon field.`;
+}
+
+/* ---------- exports ---------- */
+$('dlCsv').onclick = () => {
+  if (!lastResult) return;
+  const mh = lastResult.total_month_hour_wh;
+  let csv = 'times;' + MONTHS.join(';') + '\n';
+  for (let h = 0; h < 24; h++)
+    csv += `${h} - ${h+1};` + MONTHS.map((_, m) => Math.round(mh[m][h])).join(';') + '\n';
+  download('pv_prediction_hours_x_months.csv', csv);
+};
+$('dlJson').onclick = () => {
+  if (!lastResult) return;
+  download('pv_prediction.json', JSON.stringify(lastResult, null, 2));
+};
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'}));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ---------- config save/load ---------- */
+function currentConfig() {
+  return {
+    lat: parseFloat($('lat').value), lon: parseFloat($('lon').value),
+    address: $('addr').value.trim(),
+    userhorizon: $('userhorizon').value.trim(),
+    sections: readSections(),
+  };
+}
+function applyConfig(cfg) {
+  if (!cfg || !Array.isArray(cfg.sections)) throw new Error('not a valid config file');
+  if (isFinite(cfg.lat)) $('lat').value = cfg.lat;
+  if (isFinite(cfg.lon)) $('lon').value = cfg.lon;
+  $('addr').value = cfg.address ?? '';
+  $('userhorizon').value = cfg.userhorizon ?? '';
+  if (cfg.userhorizon) $('userhorizon').closest('details').open = true;
+  $('secBody').innerHTML = '';
+  cfg.sections.forEach(s => addSection({...s, az: s.azimuth}));
+}
+$('saveCfg').onclick = () => {
+  const cfg = currentConfig();
+  const slug = (cfg.address || `${cfg.lat}_${cfg.lon}`).replace(/[^\w.-]+/g, '_').slice(0, 40);
+  download(`pv_config_${slug}.json`, JSON.stringify(cfg, null, 2));
+};
+$('loadCfg').onclick = () => $('cfgFile').click();
+$('cfgFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    applyConfig(JSON.parse(await f.text()));
+    $('error').textContent = '';
+    $('status').textContent = `Config "${f.name}" loaded — press Calculate.`;
+  } catch (err) {
+    $('error').textContent = 'Could not load config: ' + err.message;
+  }
+});
+// auto-persist the last-used config in the browser
+window.addEventListener('load', () => {
+  try {
+    const saved = localStorage.getItem('pv_config');
+    if (saved) applyConfig(JSON.parse(saved));
+  } catch (e) { /* ignore corrupt saved state */ }
+});
+setInterval(() => {
+  try { localStorage.setItem('pv_config', JSON.stringify(currentConfig())); } catch (e) {}
+}, 2000);
+
+/* ---------- helpers ---------- */
+function el(tag, cls, txt) { const e = document.createElement(tag); e.className = cls; e.textContent = txt; return e; }
+function esc(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function niceStep(max) { const raw = max / 5, p = Math.pow(10, Math.floor(Math.log10(raw))); for (const m of [1,2,2.5,5,10]) if (m * p >= raw) return m * p; return p * 10; }
+function round1(v) { return v >= 100 ? Math.round(v) : Math.round(v * 10) / 10; }
+</script>
+</body>
+</html>

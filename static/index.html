@@ -40,7 +40,7 @@
   }
   .card h2 { font-size: 14px; margin: 0 0 10px; color: var(--text-secondary); font-weight: 600; }
   label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 2px; }
-  input, button, textarea {
+  input, button, textarea, select {
     font: inherit; color: var(--text-primary); background: var(--page);
     border: 1px solid var(--baseline); border-radius: 6px; padding: 6px 8px;
   }
@@ -53,7 +53,7 @@
   table.sections { border-collapse: collapse; width: 100%; }
   table.sections th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 500; padding: 2px 8px 6px 0; }
   table.sections td { padding: 2px 8px 2px 0; }
-  table.sections input { width: 100%; }
+  table.sections input, table.sections select { width: 100%; }
   .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: baseline; }
   #geoResults { margin-top: 6px; }
   #geoResults button { display: block; width: 100%; text-align: left; margin-top: 4px; border-color: var(--border); background: var(--surface-1); }
@@ -85,7 +85,7 @@
 <body>
 <div class="wrap">
   <h1>PV Production Predictor</h1>
-  <p class="sub">Multi-section PV yield from PVGIS hourly satellite data (SARAH3, 2018–2023 average), including terrain horizon shadowing.</p>
+  <p class="sub">Multi-section PV yield from PVGIS hourly satellite data (SARAH3, 2005–2023 average), including terrain horizon shadowing.</p>
 
   <div class="card">
     <h2>Location</h2>
@@ -109,7 +109,7 @@
   <div class="card">
     <h2>Panel sections</h2>
     <table class="sections">
-      <thead><tr><th></th><th>Name</th><th>kWp</th><th>Tilt °</th><th>Azimuth ° (180 = S, 90 = E, 270 = W)</th><th>Loss %</th><th></th></tr></thead>
+      <thead><tr><th></th><th>Name</th><th>kWp</th><th>Tilt °</th><th>Azimuth ° (180 = S, 90 = E, 270 = W)</th><th>Loss %</th><th title="PV module technology: affects temperature, low-light and spectral behaviour">Technology</th><th title="Free-standing: air flows behind the modules (on-roof with rail gap, balcony, ground). Building-integrated: no air gap (in-roof, flush façade) → hotter modules, ~3–4 % less yield">Mounting</th><th></th></tr></thead>
       <tbody id="secBody"></tbody>
     </table>
     <button id="addSec" class="ghost" style="margin-top:8px">+ Add section</button>
@@ -176,13 +176,36 @@ function addSection(vals) {
     <td><input class="s-tilt" size="4" value="${vals?.tilt ?? 35}"></td>
     <td><input class="s-az" size="4" value="${vals?.az ?? 180}"></td>
     <td><input class="s-loss" size="4" value="${vals?.loss ?? 14}"></td>
+    <td><select class="s-tech">
+      <option value="crystSi">Crystalline Si</option>
+      <option value="CIS">CIS / CIGS</option>
+      <option value="CdTe">CdTe</option>
+      <option value="Unknown">Other / unknown</option>
+    </select></td>
+    <td><select class="s-mount">
+      <option value="free">Free (air gap)</option>
+      <option value="building">Integrated</option>
+    </select></td>
     <td><button class="ghost s-del">✕</button></td>`;
+  tr.querySelector('.s-tech').value = vals?.pvtech ?? 'crystSi';
+  tr.querySelector('.s-mount').value = vals?.mounting ?? 'free';
   tr.querySelector('.s-del').onclick = () => { tr.remove(); recolor(); };
   tb.appendChild(tr);
 }
 function recolor() {
   [...$('secBody').children].forEach((tr, i) =>
     tr.querySelector('.chip').style.background = `var(${SERIES[i % 8]})`);
+}
+function readSections() {
+  return [...$('secBody').children].map(tr => ({
+    name: tr.querySelector('.s-name').value,
+    kwp: parseFloat(tr.querySelector('.s-kwp').value),
+    tilt: parseFloat(tr.querySelector('.s-tilt').value),
+    azimuth: parseFloat(tr.querySelector('.s-az').value),
+    loss: parseFloat(tr.querySelector('.s-loss').value),
+    pvtech: tr.querySelector('.s-tech').value,
+    mounting: tr.querySelector('.s-mount').value,
+  }));
 }
 $('addSec').onclick = () => addSection();
 addSection({name: 'South roof', kwp: 0.8, tilt: 37, az: 180});
@@ -222,13 +245,7 @@ function hideTip() { tip.style.display = 'none'; }
 
 /* ---------- calculate ---------- */
 $('calc').onclick = async () => {
-  const sections = [...$('secBody').children].map(tr => ({
-    name: tr.querySelector('.s-name').value,
-    kwp: parseFloat(tr.querySelector('.s-kwp').value),
-    tilt: parseFloat(tr.querySelector('.s-tilt').value),
-    azimuth: parseFloat(tr.querySelector('.s-az').value),
-    loss: parseFloat(tr.querySelector('.s-loss').value),
-  }));
+  const sections = readSections();
   if (!sections.length) { $('error').textContent = 'Add at least one section.'; return; }
   $('error').textContent = '';
   $('status').textContent = 'Querying PVGIS (first run per section takes ~10–30 s)…';
@@ -431,13 +448,7 @@ function currentConfig() {
     lat: parseFloat($('lat').value), lon: parseFloat($('lon').value),
     address: $('addr').value.trim(),
     userhorizon: $('userhorizon').value.trim(),
-    sections: [...$('secBody').children].map(tr => ({
-      name: tr.querySelector('.s-name').value,
-      kwp: parseFloat(tr.querySelector('.s-kwp').value),
-      tilt: parseFloat(tr.querySelector('.s-tilt').value),
-      azimuth: parseFloat(tr.querySelector('.s-az').value),
-      loss: parseFloat(tr.querySelector('.s-loss').value),
-    })),
+    sections: readSections(),
   };
 }
 function applyConfig(cfg) {
@@ -448,7 +459,7 @@ function applyConfig(cfg) {
   $('userhorizon').value = cfg.userhorizon ?? '';
   if (cfg.userhorizon) $('userhorizon').closest('details').open = true;
   $('secBody').innerHTML = '';
-  cfg.sections.forEach(s => addSection({name: s.name, kwp: s.kwp, tilt: s.tilt, az: s.azimuth, loss: s.loss}));
+  cfg.sections.forEach(s => addSection({...s, az: s.azimuth}));
 }
 $('saveCfg').onclick = () => {
   const cfg = currentConfig();
