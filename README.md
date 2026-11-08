@@ -27,12 +27,12 @@ An example config is stored in `configs/pv_config_example_Berlin.json`.
 
 Search for your location and enter details about the PV system, like peak power, azimuth and tilt.
 
-Then get the solar irradiation data and calculate monthly production, and daily profiles.
-
-Download the calculated data for further analysis as csv, and the PV config as json.
-
 ![Data input](screenshots/input.png)
+
+Then get the solar irradiation data and calculate monthly production, and daily profiles.
 
 ![PV production histogram](screenshots/histogram.png)
 
 ![PV production profile](screenshots/profile.png)
+
+Download the calculated data for further analysis as csv, and the PV config as json.
