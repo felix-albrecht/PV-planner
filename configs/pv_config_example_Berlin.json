@@ -1,0 +1,43 @@
+{
+  "lat": 52.5174,
+  "lon": 13.3951,
+  "address": "Berlin",
+  "userhorizon": "",
+  "sections": [
+    {
+      "name": "Süddach",
+      "kwp": 4,
+      "tilt": 45,
+      "azimuth": 209.6,
+      "loss": 14
+    },
+    {
+      "name": "Süddach Gaube",
+      "kwp": 3,
+      "tilt": 30,
+      "azimuth": 209.6,
+      "loss": 14
+    },
+    {
+      "name": "Norddach Gaube",
+      "kwp": 3,
+      "tilt": 30,
+      "azimuth": 29.6,
+      "loss": 14
+    },
+    {
+      "name": "Garage Ost",
+      "kwp": 1.5,
+      "tilt": 15,
+      "azimuth": 119.6,
+      "loss": 14
+    },
+    {
+      "name": "Garage West",
+      "kwp": 1.5,
+      "tilt": 15,
+      "azimuth": 299.6,
+      "loss": 14
+    }
+  ]
+}
